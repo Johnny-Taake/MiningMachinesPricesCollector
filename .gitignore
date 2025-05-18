@@ -1,0 +1,9 @@
+.env
+.vscode/
+**/__pycache__/
+.venv/
+
+/data/
+forward_config.json
+*.session-journal
+*.session
