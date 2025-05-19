@@ -3,9 +3,10 @@
 **/__pycache__/
 .venv/
 
-/data/
-forward_config.json
 *.session-journal
 *.session
+
+forward_config.json
+data/
 
 test_scraper.py

@@ -1,8 +1,10 @@
 import asyncio
 from datetime import datetime
+from itertools import islice
 import os
 import re
 
+from pyrogram.types import InputMediaDocument
 from pyrogram import Client, filters
 from pyrogram.types import Message
 from pyrogram.errors import FloodWait
@@ -10,6 +12,51 @@ from pyrogram.raw import functions
 
 from src.config import settings
 from src.logger import logger as log
+from src.pdf_processing import pdf_parser_main
+from src.parser.uminers import UminersScraper
+
+
+async def check_user_permission(client: Client, message: Message) -> bool:
+    """Check if the user has permission to collect PDF files by looking for them in the "Admins Bot" folder."""
+    try:
+        if not message.from_user:
+            return False
+        user_id = message.from_user.id
+
+        # 1. get a list of user filters (folders)
+        filters = await client.invoke(functions.messages.GetDialogFilters())
+
+        admin_folder = next(
+            (
+                f
+                for f in filters
+                if hasattr(f, "title")  # пропускаем default/pinned
+                and f.title == settings.pdf_collector.admins_folder_name
+            ),
+            None,
+        )
+        if not admin_folder:
+            print(f"Папка «{settings.pdf_collector.admins_folder_name}» не найдена")
+            return False
+
+        # 2. check peers
+        for p in admin_folder.include_peers:
+            if getattr(p, "user_id", None) == user_id:
+                return True
+            if getattr(p, "chat_id", None) and (-p.chat_id) == user_id:
+                return True
+            if (
+                getattr(p, "channel_id", None)
+                and (-1000000000000 - p.channel_id) == user_id
+            ):
+                return True
+
+        print(f"Пользователь {user_id} не найден в папке администраторов")
+        return False
+
+    except Exception as e:
+        print(f"Ошибка при проверке прав пользователя: {e}")
+        return False
 
 
 async def download_pdf(client: Client, message: Message, save_dir: str) -> str:
@@ -42,9 +89,7 @@ async def download_pdf(client: Client, message: Message, save_dir: str) -> str:
 
         # Form a file name
         chat_title = message.chat.title or str(message.chat.id)
-        chat_title = re.sub(
-            r"[^\w\-_\. ]", "_", chat_title
-        )
+        chat_title = re.sub(r"[^\w\-_\. ]", "_", chat_title)
 
         # Save the file under the chat name
         file_name = f"{chat_title}.pdf"
@@ -73,7 +118,10 @@ async def collect_pdf_files(client: Client, message: Message, limit: int = 100):
 
     # Create a directory for the current collection
     now = datetime.now().strftime("%Y%m%d_%H%M%S")
-    collection_dir = os.path.join(settings.pdf_collector.get_pdf_save_dir(settings.base_data_dir), f"collection_{now}")
+    collection_dir = os.path.join(
+        settings.pdf_collector.get_pdf_save_dir(settings.base_data_dir),
+        f"collection_{now}",
+    )
     os.makedirs(collection_dir, exist_ok=True)
 
     # Send a message to indicate that the collection is starting
@@ -91,7 +139,8 @@ async def collect_pdf_files(client: Client, message: Message, limit: int = 100):
             (
                 f
                 for f in filters
-                if hasattr(f, "title") and f.title == settings.pdf_collector.collect_folder_name
+                if hasattr(f, "title")
+                and f.title == settings.pdf_collector.collect_folder_name
             ),
             None,
         )
@@ -219,6 +268,14 @@ async def collect_pdf_files(client: Client, message: Message, limit: int = 100):
                 {"chat_name": f"Chat {chat_id}", "chat_id": chat_id, "error": str(e)}
             )
 
+    # Collect all file paths from the collection log
+    all_files = [
+        f_info["file_path"]
+        for chat_log in collection_log
+        if "files" in chat_log
+        for f_info in chat_log["files"]
+    ]
+
     # Save the report
     report_path = os.path.join(collection_dir, "collection_report.txt")
     with open(report_path, "w", encoding="utf-8") as f:
@@ -258,56 +315,35 @@ async def collect_pdf_files(client: Client, message: Message, limit: int = 100):
 
     await status_message.edit(result_message)
 
+    # Send all collected files in batches
+    CHUNK = 5
+    it = iter(all_files)
+    batch = list(islice(it, CHUNK))
+    while batch:
+        media_group = [InputMediaDocument(file_path) for file_path in batch]
+        await client.send_media_group(chat_id=message.chat.id, media=media_group)
+        batch = list(islice(it, CHUNK))
 
-async def check_user_permission(client: Client, message: Message) -> bool:
-    """
-    True → the user is in the «Admins Bot» folder filter.
-    """
-    try:
-        if not message.from_user:
-            return False
-        user_id = message.from_user.id
+    status_message = await message.reply(
+        "Извлечение данных из PDF файлов..."
+    )
 
-        # 1. get a list of user filters (folders)
-        filters = await client.invoke(functions.messages.GetDialogFilters())
-
-        admin_folder = next(
-            (
-                f
-                for f in filters
-                if hasattr(f, "title")  # пропускаем default/pinned
-                and f.title == settings.pdf_collector.admins_folder_name
-            ),
-            None,
-        )
-        if not admin_folder:
-            print(f"Папка «{settings.pdf_collector.admins_folder_name}» не найдена")
-            return False
-
-        # 2. check peers
-        for p in admin_folder.include_peers:
-            if getattr(p, "user_id", None) == user_id:
-                return True
-            if getattr(p, "chat_id", None) and (-p.chat_id) == user_id:
-                return True
-            if (
-                getattr(p, "channel_id", None)
-                and (-1000000000000 - p.channel_id) == user_id
-            ):
-                return True
-
-        print(f"Пользователь {user_id} не найден в папке администраторов")
-        return False
-
-    except Exception as e:
-        print(f"Ошибка при проверке прав пользователя: {e}")
-        return False
+    # Process the collected PDFs with pdf_parser_main
+    pdf_parser_main()
+    
+    await status_message.edit(
+        "Сбор данных с сайта Uminers..."
+    )
+    
+    # Run the Uminers WebScraper
+    uminers_scraper = UminersScraper(settings.uminers_scraper.urls_to_scrape)
+    uminers_scraper.run()
 
 
 def register_pdf_collector_handlers(app: Client):
     """
     Register handlers for the 'collect' command for PDF collection.
-    """ 
+    """
 
     @app.on_message(
         filters.command(["сбор", "collect"]) & (filters.group | filters.private)

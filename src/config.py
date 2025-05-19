@@ -44,6 +44,7 @@ class PDFCollectorConfig(BaseModel):
 
     # Where to save collected PDFs
     pdf_save_dir: str = "collected_pdfs"
+
     def get_pdf_save_dir(self, base_data_dir: str) -> str:
         return os.path.join(base_data_dir, self.pdf_save_dir)
 
@@ -62,16 +63,26 @@ class PDFCollectorConfig(BaseModel):
 class UminersScraperConfig(BaseModel):
     # Number of parallel workers
     max_workers: int = 3
-    output_file: str = "uminers.xlsx"
+    # Result file name
+    output_file: str = "Uminers.xlsx"
+
+    # Search URLs
+    urls_to_scrape: list[str] = [
+        "https://uminers.com/ru/catalog/asic-miner/1?sort=rated&manufacturer%5B%5D=2",
+        "https://uminers.com/ru/catalog/asic-miner/1?sort=rated&manufacturer%5B%5D=1",
+    ]
 
 
 class Config(BaseSettings):
     # Common data directory
     base_data_dir: str = "data"
-    
+
     # Common directory to store prepared excels
     prepared_excels_dir: str = f"{base_data_dir}/prepared_excels"
-    
+
+    # Ecxel files archive directory
+    # excels_archive_dir: str = f"{base_data_dir}/excels_archive"
+
     # Prepared excels directory
     prepared_data_dir: str = "prepared_data"
 

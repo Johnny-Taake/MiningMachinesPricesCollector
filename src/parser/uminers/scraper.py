@@ -1,6 +1,5 @@
 from typing import List, Dict, Any
 import time
-import os
 import pandas as pd
 from pathlib import Path
 
@@ -26,10 +25,13 @@ class UminersScraper(BaseScraper):
         # Initialize the base scraper
         super().__init__(urls)
         self.output_file = output_file
-        self.max_workers = max_workers  # Number of parallel workers
+        # Number of parallel workers
+        self.max_workers = max_workers
         self.all_products_data = []
-        self.print_lock = RLock()  # Lock for thread-safe printing
-        self.data_lock = RLock()  # Lock for thread-safe data access
+        # Lock for thread-safe printing
+        self.print_lock = RLock()
+        # Lock for thread-safe data access
+        self.data_lock = RLock()
 
     def safe_print(self, message: str):
         """Thread-safe printing"""
@@ -40,7 +42,7 @@ class UminersScraper(BaseScraper):
         """Open a specific URL and return the page title"""
         self.driver.get(url)
         # Print the title of the page
-        self.safe_print(f"Page title: {self.driver.title}")
+        self.safe_print(f"Заголовок страницы: {self.driver.title}")
 
     def extract_card_data(self, card) -> Dict[str, Any]:
         """Extract data from a specific product card element"""
@@ -360,7 +362,9 @@ class UminersScraper(BaseScraper):
 
             # 3. Save to Excel
             df.to_excel(full_path, index=False)
-            self.safe_print(f"\nSuccessfully saved {len(products)} products to {full_path}")
+            self.safe_print(
+                f"\nSuccessfully saved {len(products)} products to {full_path}"
+            )
         except Exception as e:
             self.safe_print(f"Error saving to Excel: {e}")
 
