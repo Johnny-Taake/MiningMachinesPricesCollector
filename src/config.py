@@ -94,7 +94,7 @@ class Config(BaseSettings):
     prepared_excels_dir: str = f"{base_data_dir}/prepared_excels"
 
     # Ecxel files archive directory
-    # excels_archive_dir: str = f"{base_data_dir}/excels_archive"
+    excels_archive_dir: str = f"{base_data_dir}/excels_archive"
 
     # Prepared excels directory
     prepared_data_dir: str = f"{base_data_dir}/prepared_data"

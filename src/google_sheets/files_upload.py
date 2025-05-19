@@ -1,15 +1,17 @@
 from datetime import datetime
+from googleapiclient.discovery import build
+from google.oauth2.service_account import Credentials
+import gspread
 from pathlib import Path
 import pandas as pd
-import gspread
-from google.oauth2.service_account import Credentials
-from googleapiclient.discovery import build  # ← Drive API
+import shutil 
+
 from src.config import settings
 
 
-def ensure_folder(drive, folder): 
+def ensure_folder(drive, folder):
     # None → root
-    if not folder:  
+    if not folder:
         return None
 
     # Id is 25–60-characters long
@@ -38,11 +40,13 @@ def upload_collected_files_to_google_sheets():
     EMAILS = settings.google_sheets.emails
     # Remove duplicates
     EMAILS = list(dict.fromkeys(settings.google_sheets.emails))
-    
+
     EXCEL_DIR = Path(settings.prepared_excels_dir)
     CREDS_PATH = settings.google_sheets.client_secret_file
     TARGET_FLD = settings.google_sheets.files_folder_name
     DATETIME_FMT = "%Y_%m_%d_%H:%M"
+
+    ARCHIVE_DIR = Path(settings.excels_archive_dir)
 
     scopes = [
         "https://www.googleapis.com/auth/drive",
@@ -52,6 +56,7 @@ def upload_collected_files_to_google_sheets():
     gc = gspread.authorize(creds)
     drive_svc = build("drive", "v3", credentials=creds, cache_discovery=False)
 
+    # FIXME
     # Ensure the target folder exists
     folder_id = ensure_folder(drive_svc, TARGET_FLD)
 
@@ -75,6 +80,10 @@ def upload_collected_files_to_google_sheets():
     file_link = f"https://docs.google.com/spreadsheets/d/{spreadsheet.id}"
     print("Документ: ", file_link)
 
+    # Prepare batch directory for archiving
+    batch_dir = ARCHIVE_DIR / title
+    batch_dir.mkdir(parents=True, exist_ok=True)
+
     # Upload Excel files
     xlsx_files = sorted(EXCEL_DIR.glob("*.xlsx"))
     if not xlsx_files:
@@ -84,16 +93,22 @@ def upload_collected_files_to_google_sheets():
     for i, xls in enumerate(xlsx_files, 1):
         df = pd.read_excel(xls, sheet_name=0, dtype=str).fillna("")
         sheet_title = xls.stem[:100]
+
         ws = (
             spreadsheet.sheet1
             if i == 1
             else spreadsheet.add_worksheet(
-                title=sheet_title, rows=len(df) + 10, cols=len(df.columns) + 5
+                title=sheet_title,
+                rows=len(df) + 10,
+                cols=len(df.columns) + 5,
             )
         )
         if i == 1:
             ws.update_title(sheet_title)
         ws.update([df.columns.tolist()] + df.values.tolist())
+
+        # Move the file to the archive directory
+        shutil.move(str(xls), batch_dir / xls.name)
 
     print("✅ Готово")
     return file_link
