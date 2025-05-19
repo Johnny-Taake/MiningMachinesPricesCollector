@@ -59,18 +59,26 @@ class PDFCollectorConfig(BaseModel):
     ]
 
 
-# class ChromeConfig(BaseModel):
-#     path: str = os.path.abspath("/usr/local/bin/chromedriver")
+class UminersScraperConfig(BaseModel):
+    # Number of parallel workers
+    max_workers: int = 3
+    output_file: str = "uminers.xlsx"
 
 
 class Config(BaseSettings):
     # Common data directory
     base_data_dir: str = "data"
+    
+    # Common directory to store prepared excels
+    prepared_excels_dir: str = f"{base_data_dir}/prepared_excels"
+    
+    # Prepared excels directory
+    prepared_data_dir: str = "prepared_data"
 
     tg_bot_run: TGBotRunConfig = TGBotRunConfig()
     bot_forwarding: BotForwardingConfig = BotForwardingConfig()
     pdf_collector: PDFCollectorConfig = PDFCollectorConfig()
-    # chrome: ChromeConfig = ChromeConfig()
+    uminers_scraper: UminersScraperConfig = UminersScraperConfig()
 
 
 settings = Config()

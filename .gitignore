@@ -7,3 +7,5 @@
 forward_config.json
 *.session-journal
 *.session
+
+test_scraper.py
