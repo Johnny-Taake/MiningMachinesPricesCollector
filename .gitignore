@@ -6,6 +6,8 @@
 *.session-journal
 *.session
 
+client_secret_google.json
+
 forward_config.json
 data/
 

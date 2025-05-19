@@ -10,6 +10,10 @@ load_dotenv(".env")
 API_ID = int(os.getenv("API_ID", "12345"))
 API_HASH = os.getenv("API_HASH", "0123456789abcdef0123456789abcdef")
 
+GOOGLE_SHEETS_EMAILS = [
+    e.strip() for e in os.getenv("GOOGLE_SHEETS_EMAILS", "").split(",") if e.strip()
+]
+
 
 class BotMode(str, Enum):
     # message forward and collect
@@ -73,6 +77,15 @@ class UminersScraperConfig(BaseModel):
     ]
 
 
+class GoogleSheetsConfig(BaseModel):
+    emails: list[str] = GOOGLE_SHEETS_EMAILS
+    # NOTE: Matches with name in .gitignore, important to keep it secret and not to commit
+    client_secret_file: str = "client_secret_google.json"
+    # NOTE: If None -> root folder used
+    # files_folder_name: str = "Collected Files"
+    files_folder_name: str = None
+
+
 class Config(BaseSettings):
     # Common data directory
     base_data_dir: str = "data"
@@ -84,12 +97,13 @@ class Config(BaseSettings):
     # excels_archive_dir: str = f"{base_data_dir}/excels_archive"
 
     # Prepared excels directory
-    prepared_data_dir: str = "prepared_data"
+    prepared_data_dir: str = f"{base_data_dir}/prepared_data"
 
     tg_bot_run: TGBotRunConfig = TGBotRunConfig()
     bot_forwarding: BotForwardingConfig = BotForwardingConfig()
     pdf_collector: PDFCollectorConfig = PDFCollectorConfig()
     uminers_scraper: UminersScraperConfig = UminersScraperConfig()
+    google_sheets: GoogleSheetsConfig = GoogleSheetsConfig()
 
 
 settings = Config()

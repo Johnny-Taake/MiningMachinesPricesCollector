@@ -14,6 +14,7 @@ from src.config import settings
 from src.logger import logger as log
 from src.pdf_processing import pdf_parser_main
 from src.parser.uminers import UminersScraper
+from src.google_sheets import upload_collected_files_to_google_sheets
 
 
 async def check_user_permission(client: Client, message: Message) -> bool:
@@ -338,6 +339,16 @@ async def collect_pdf_files(client: Client, message: Message, limit: int = 100):
     # Run the Uminers WebScraper
     uminers_scraper = UminersScraper(settings.uminers_scraper.urls_to_scrape)
     uminers_scraper.run()
+    
+    await status_message.edit(
+        "Загрузка данных в Google Sheets..."
+    )
+    
+    # Upload collected files to Google Sheets
+    link = upload_collected_files_to_google_sheets()
+    await status_message.edit(
+        f"✅ Данные загружены в Google Sheets: {link}"
+    )
 
 
 def register_pdf_collector_handlers(app: Client):
