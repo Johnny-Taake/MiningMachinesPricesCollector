@@ -14,6 +14,9 @@ GOOGLE_SHEETS_EMAILS = [
     e.strip() for e in os.getenv("GOOGLE_SHEETS_EMAILS", "").split(",") if e.strip()
 ]
 
+# NOTE: For shared folder use folder ID, for root folder use None
+GOOGLE_DRIVE_FOLDER = os.getenv("GOOGLE_DRIVE_FOLDER", None)
+
 
 class BotMode(str, Enum):
     # message forward and collect
@@ -82,8 +85,7 @@ class GoogleSheetsConfig(BaseModel):
     # NOTE: Matches with name in .gitignore, important to keep it secret and not to commit
     client_secret_file: str = "client_secret_google.json"
     # NOTE: If None -> root folder used
-    # files_folder_name: str = "Collected Files"
-    files_folder_name: str = None
+    files_folder_name: str = GOOGLE_DRIVE_FOLDER
 
 
 class Config(BaseSettings):

@@ -4,6 +4,7 @@ from itertools import islice
 import os
 import re
 
+import gspread
 from pyrogram.types import InputMediaDocument
 from pyrogram import Client, filters
 from pyrogram.types import Message
@@ -333,6 +334,10 @@ async def collect_pdf_files(client: Client, message: Message, limit: int = 100):
     pdf_parser_main()
     
     await status_message.edit(
+        "✅ Данные успешно извлечены из PDF файлов. "
+    )
+    
+    await status_message.edit(
         "Сбор данных с сайта Uminers..."
     )
     
@@ -344,11 +349,24 @@ async def collect_pdf_files(client: Client, message: Message, limit: int = 100):
         "Загрузка данных в Google Sheets..."
     )
     
-    # Upload collected files to Google Sheets
-    link = upload_collected_files_to_google_sheets()
-    await status_message.edit(
-        f"✅ Данные загружены в Google Sheets: {link}"
-    )
+    # Upload collected files to Google Sheetsa
+    try:
+        link = upload_collected_files_to_google_sheets()
+        await status_message.edit(
+            f"✅ Данные загружены в Google Sheets: {link}"
+        )
+    except gspread.exceptions.APIError as e:
+        if e.response.status_code == 403 and "sharing quota" in str(e):
+            print("⚠️  Квота SharingQuota исчерпана – пропускаю загрузку в Google Sheets")
+            
+            await status_message.edit(
+                "⚠️  Квота SharingQuota исчерпана – пропускаю загрузку в Google Sheets"
+            )
+        else:
+            await status_message.edit(
+                f"❌ Ошибка при загрузке в Google Sheets"
+            )
+            raise
 
 
 def register_pdf_collector_handlers(app: Client):

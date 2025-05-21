@@ -13,22 +13,11 @@ BASE_INPUT_DIR = Path(settings.pdf_collector.get_pdf_save_dir(settings.base_data
 OUTPUT_DIR = Path(settings.prepared_excels_dir)
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-# Promminer:
-# top,left,bottom,right
-PROM_TABULA_AREA = [150, 19, 637, 368]
-# 4 dividers → 5 columns
-PROM_TABULA_COLUMNS = [123, 183, 251, 320]
-PROM_HEADER = [
-    "Модель",
-    "Хэшрейт",
-    "Потребление",
-    "Срок поставки",
-    "Цена от",
-]
-
 # IBMM:
 # top,left,bottom,right
 IBMM_TABULA_AREA = [118, 28, 800, 580]
+# IBMM_TABULA_AREA = [30, 20, 800, 580]
+
 # 6 dividers → 7 columns
 IBMM_TABULA_COLUMNS = [140, 240, 340, 400, 470, 530]
 IBMM_HEADER = [
@@ -42,25 +31,26 @@ IBMM_HEADER = [
 ]
 
 
-# 0. Get the latest directory with PDFs
+# Get the latest directory with PDFs
 def get_input_dir() -> Path:
     """
     Return newest collection_* subdirectory inside BASE_INPUT_DIR.
     If none exists – return BASE_INPUT_DIR itself.
     """
     subdirs = [
-        d for d in BASE_INPUT_DIR.iterdir()
+        d
+        for d in BASE_INPUT_DIR.iterdir()
         if d.is_dir() and d.name.startswith("collection_")
     ]
     if subdirs:
-        latest = max(subdirs, key=lambda p: p.name)      # имя-дата новее
+        latest = max(subdirs, key=lambda p: p.name)  # имя-дата новее
         print(f"✅  Выбрана свежая подборка: {latest.relative_to(BASE_INPUT_DIR)}")
         return latest
     print(f"⚠️  Подпапки collection_* не найдены – используем {BASE_INPUT_DIR}")
     return BASE_INPUT_DIR
 
 
-# 1. Universal Tabula fallback
+# Universal Tabula fallback
 def fallback_tables(pdf_path: Path) -> List[pd.DataFrame]:
     """stream → lattice, возвращает список непустых DataFrame'ов."""
     for mode in ("stream", "lattice"):
@@ -83,7 +73,7 @@ def fallback_tables(pdf_path: Path) -> List[pd.DataFrame]:
     return []
 
 
-# 2. IBMM Profile
+# IBMM Profile
 def _clean_cell(x):
     """'-', '–', '—', '' →  pd.NA; иначе trimmed str / число как есть."""
     if pd.isna(x):
@@ -107,7 +97,7 @@ def extract_ibmm(pdf_path: Path) -> pd.DataFrame:
     df = pd.concat([t.dropna(axis=1, how="all") for t in tables], ignore_index=True)
 
     # Normalization
-    df = df.applymap(_clean_cell)
+    df = df.map(_clean_cell)
 
     # Remove repeated headers
     df = df[df.iloc[:, 0].str.lower() != "модель"]
@@ -128,41 +118,17 @@ def extract_ibmm(pdf_path: Path) -> pd.DataFrame:
     return df.reset_index(drop=True)
 
 
-# 3. Promminer Profile
-def extract_promminer(pdf_path: Path) -> pd.DataFrame:
-    """Чётко режем Promminer по area+columns (Tabula-py) и ставим кастомный header."""
-    tables = tabula.read_pdf(
-        str(pdf_path),
-        pages="all",
-        multiple_tables=False,
-        guess=False,
-        stream=True,
-        area=PROM_TABULA_AREA,
-        columns=PROM_TABULA_COLUMNS,
-        pandas_options={"dtype": str},
-    )
-
-    df = tables[0].dropna(axis=1, how="all")
-
-    # Set custom header
-    df.columns = PROM_HEADER
-
-    # If the first row is a header, remove it
-    if df.iloc[0].str.contains(r"\d").sum() == 0:
-        df = df[1:]
-
-    return df.reset_index(drop=True)
-
-
-# 4. Routing function
+# Routing function
 def route_extract(pdf_path: Path) -> pd.DataFrame:
     name = pdf_path.stem.lower()
     if name.startswith(("ibmm", "ibmm_", "ibm")):
         print("   → профиль IBMM")
         return extract_ibmm(pdf_path)
     if name.startswith(("promminer", "promminer_")):
-        print("   → профиль Promminer")
-        return extract_promminer(pdf_path)
+        print("   → профиль Promminer CV2")
+        from .prominer_cv2 import extract_promminer
+
+        return extract_promminer(pdf_path, save_cells=False)
     print("   → профиль DEFAULT (Tabula)")
     frames = fallback_tables(pdf_path)
     return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
@@ -170,7 +136,7 @@ def route_extract(pdf_path: Path) -> pd.DataFrame:
 
 def main():
     input_dir = get_input_dir()
-    
+
     for pdf in input_dir.glob("*.pdf"):
         print(f"▶ {pdf.name}")
         df = route_extract(pdf)
