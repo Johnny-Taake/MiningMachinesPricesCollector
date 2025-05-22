@@ -6,7 +6,6 @@ import os
 from pyrogram import filters
 from pyrogram.handlers import MessageHandler
 
-from src import logger as log
 from src.config import settings, BotMode
 
 from src.telegram.client import app
@@ -125,16 +124,16 @@ async def main():
                 )
 
             if not folder_config or not folder_chat_info:
-                log.error(
+                print(
                     "Невозможно загрузить конигурацию пересылки. Что-то пошло не так."
                 )
-                return
+                # return
 
             # Ask the user if they want to continue only with the collector mode
             while True:
                 response = input(
                     "Продолжить в режиме только сборщика PDF? (да/нет): "
-                ).lower()
+                ).lower().strip()
                 if response in ["да", "yes", "y", "д"]:
                     print("Запуск в режиме сборщика PDF...")
                     print("Запуск сбора: отправьте команду /сбор в любой чат с ботом")

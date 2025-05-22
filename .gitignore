@@ -6,9 +6,6 @@
 *.session-journal
 *.session
 
-client_secret_google.json
+*.json
 
-forward_config.json
 data/
-
-test_scraper.py

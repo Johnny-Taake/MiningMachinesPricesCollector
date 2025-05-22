@@ -14,6 +14,10 @@ GOOGLE_SHEETS_EMAILS = [
     e.strip() for e in os.getenv("GOOGLE_SHEETS_EMAILS", "").split(",") if e.strip()
 ]
 
+UMINER_SEARCH_URLS = [
+    u.strip() for u in os.getenv("UMINER_SEARCH_URLS", "").split(",") if u.strip()
+]
+
 # NOTE: For shared folder use folder ID, for root folder use None
 GOOGLE_DRIVE_FOLDER = os.getenv("GOOGLE_DRIVE_FOLDER", None)
 
@@ -73,16 +77,12 @@ class UminersScraperConfig(BaseModel):
     # Result file name
     output_file: str = "Uminers.xlsx"
 
-    # Search URLs
-    urls_to_scrape: list[str] = [
-        "https://uminers.com/ru/catalog/asic-miner/1?sort=rated&manufacturer%5B%5D=2",
-        "https://uminers.com/ru/catalog/asic-miner/1?sort=rated&manufacturer%5B%5D=1",
-    ]
+    # Search URLs  # TODO: Move to env
+    urls_to_scrape: list[str] = UMINER_SEARCH_URLS
 
 
 class GoogleSheetsConfig(BaseModel):
     emails: list[str] = GOOGLE_SHEETS_EMAILS
-    # NOTE: Matches with name in .gitignore, important to keep it secret and not to commit
     client_secret_file: str = "client_secret_google.json"
     # NOTE: If None -> root folder used
     files_folder_name: str = GOOGLE_DRIVE_FOLDER

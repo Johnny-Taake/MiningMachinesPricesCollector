@@ -88,11 +88,11 @@ class UminersScraper(BaseScraper):
         # Extract price, including currency and VAT status
         try:
             # Try the original selector
-            price_elems = card.find_elements(By.CSS_SELECTOR, "a.card__price")
+            price_elems = card.find_elements(By.CSS_SELECTOR, "a.cardprice")
 
-            # If not found, try with alternative selectors based on provided HTML
+            # If not found, try with alternative selectors
             if not price_elems:
-                price_elems = card.find_elements(By.CSS_SELECTOR, "a.cardprice")
+                price_elems = card.find_elements(By.CSS_SELECTOR, "a.card__price")
 
             if price_elems:
                 price_elem = price_elems[0]

@@ -3,7 +3,7 @@ import os
 
 from pyrogram.enums import ChatType
 
-from src import logger as log
+from src.logger import logger as log
 from src.telegram.client import app
 from src.telegram.utils import get_dialog_folder
 

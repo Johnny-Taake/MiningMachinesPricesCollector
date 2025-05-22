@@ -56,7 +56,6 @@ def upload_collected_files_to_google_sheets():
     gc = gspread.authorize(creds)
     drive_svc = build("drive", "v3", credentials=creds, cache_discovery=False)
 
-    # FIXME
     # Ensure the target folder exists
     folder_id = ensure_folder(drive_svc, TARGET_FLD)
 
@@ -73,9 +72,10 @@ def upload_collected_files_to_google_sheets():
     title = datetime.now().strftime(DATETIME_FMT)
     spreadsheet = gc.create(title, folder_id=folder_id)
 
+    # NOTE: Using Google Drive folder to not to use the share optinion dew to share limits
     # Share the spreadsheet with specified emails
-    for email in EMAILS:
-        spreadsheet.share(email, perm_type="user", role="writer")
+    # for email in EMAILS:
+    #     spreadsheet.share(email, perm_type="user", role="writer")
 
     file_link = f"https://docs.google.com/spreadsheets/d/{spreadsheet.id}"
     print("Документ: ", file_link)
