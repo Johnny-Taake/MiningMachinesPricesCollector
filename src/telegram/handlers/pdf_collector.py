@@ -5,8 +5,9 @@ import os
 import re
 
 import gspread
+from pyrogram import filters
 from pyrogram.types import InputMediaDocument
-from pyrogram import Client, filters
+from pyrogram.client import Client
 from pyrogram.types import Message
 from pyrogram.errors import FloodWait
 from pyrogram.raw import functions
@@ -57,11 +58,11 @@ async def check_user_permission(client: Client, message: Message) -> bool:
         return False
 
     except Exception as e:
-        print(f"Ошибка при проверке прав пользователя: {e}")
+        log.exception(f"Ошибка при проверке прав пользователя: {e}")
         return False
 
 
-async def download_pdf(client: Client, message: Message, save_dir: str) -> str:
+async def download_pdf(client: Client, message: Message, save_dir: str) -> str | None:
     """
     Download a PDF file from a Telegram message and save it to a specified directory.
     Returns the path to the downloaded file or None if the download failed.
@@ -107,7 +108,109 @@ async def download_pdf(client: Client, message: Message, save_dir: str) -> str:
         return None
 
 
-async def collect_pdf_files(client: Client, message: Message, limit: int = 100):
+async def collect_pdf_files(
+    client: Client, chat_ids: list, collection_dir: str, limit: int = 100
+):
+    """
+    Collect PDF files from specified chats and download them to collection directory.
+
+    Args:
+        client: Telegram client
+        chat_ids: List of chat IDs to search in
+        collection_dir: Directory to save collected files
+        limit: Number of messages to check in each chat
+
+    Returns:
+        tuple: (collection_log, total_pdfs, chats_with_files, all_files)
+    """
+    collection_log = []
+    total_pdfs = 0
+    chats_with_files = 0
+    all_files = []
+
+    # Process each chat
+    for chat_id in chat_ids:
+        try:
+            # Get chat information
+            chat = await client.get_chat(chat_id)
+            chat_name = chat.title or f"Chat {chat_id}"
+
+            print(f"Обрабатываю чат: {chat_name} (ID: {chat_id})")
+
+            # Variable for storing the latest PDF
+            latest_pdf = None
+            latest_date = None
+
+            # Get the last messages
+            async for msg in client.get_chat_history(chat_id, limit=limit):
+                # Check if there is a document (PDF)
+                if msg.document and msg.document.file_name.endswith(".pdf"):
+                    # Check if the file matches the name keywords
+                    file_name_lower = msg.document.file_name.lower()
+                    is_match = False
+                    for keyword in settings.pdf_collector.pdf_filename_keywords:
+                        if keyword.lower() in file_name_lower:
+                            is_match = True
+                            matching_keyword = keyword
+                            break
+
+                    if is_match:
+                        print(
+                            f"Найден подходящий файл: {msg.document.file_name} (ключевое слово: {matching_keyword})"
+                        )
+                        # If there is no latest PDF, or the current message is newer, update the latest PDF
+                        if latest_date is None or msg.date > latest_date:
+                            latest_pdf = msg
+                            latest_date = msg.date
+                            print(
+                                f"Обновлен самый свежий файл: {msg.document.file_name} от {msg.date}"
+                            )
+
+            # Download the latest PDF if found
+            if latest_pdf:
+                print(
+                    f"Скачиваю самый свежий файл из чата {chat_name}: {latest_pdf.document.file_name}"
+                )
+                file_path = await download_pdf(client, latest_pdf, collection_dir)
+                if file_path:
+                    pdf_info = {
+                        "file_path": file_path,
+                        "file_name": latest_pdf.document.file_name,
+                        "date": latest_pdf.date.strftime("%Y-%m-%d %H:%M:%S"),
+                        "from_user": (
+                            latest_pdf.from_user.first_name
+                            if latest_pdf.from_user
+                            else "Unknown"
+                        ),
+                    }
+                    collection_log.append(
+                        {
+                            "chat_name": chat_name,
+                            "chat_id": chat_id,
+                            "files_count": 1,
+                            "files": [pdf_info],
+                        }
+                    )
+                    all_files.append(file_path)
+                    total_pdfs += 1
+                    chats_with_files += 1
+                    print(f"Успешно скачан файл из чата {chat_name}: {file_path}")
+            else:
+                print(f"В чате {chat_name} не найдено подходящих PDF файлов")
+
+        except FloodWait as fw:
+            print(f"⚠️ FloodWait при обработке чата {chat_id}: ждём {fw.value} секунд")
+            await asyncio.sleep(fw.value)
+        except Exception as e:
+            log.exception(f"⚠️ Ошибка при обработке чата {chat_id}: {e}")
+            collection_log.append(
+                {"chat_name": f"Chat {chat_id}", "chat_id": chat_id, "error": str(e)}
+            )
+
+    return collection_log, total_pdfs, chats_with_files, all_files
+
+
+async def collect_handler(client: Client, message: Message, limit: int = 100):
     """
     Process the 'collect' command: finds the latest PDF file with keywords in each chat from the "Collect Bot" folder
     """
@@ -185,98 +288,17 @@ async def collect_pdf_files(client: Client, message: Message, limit: int = 100):
         await status_message.edit(f"❌ Ошибка при получении чатов из папки: {e}")
         return
 
-    # Collection log
-    collection_log = []
-    total_pdfs = 0
-    chats_with_files = 0
+    # Collect PDF files using the dedicated function
+    await status_message.edit("🔍 Поиск и скачивание PDF файлов...")
 
-    # Process each chat
-    for chat_id in chat_ids:
-        try:
-            # Get chat information
-            chat = await client.get_chat(chat_id)
-            chat_name = chat.title or f"Chat {chat_id}"
-
-            # Show progress
-            await status_message.edit(f"🔍 Поиск в чате: {chat_name}")
-            print(f"Обрабатываю чат: {chat_name} (ID: {chat_id})")
-
-            # Variable for storing the latest PDF
-            latest_pdf = None
-            latest_date = None
-
-            # Get the last messages
-            async for msg in client.get_chat_history(chat_id, limit=limit):
-                # Check if there is a document (PDF)
-                if msg.document and msg.document.file_name.endswith(".pdf"):
-                    # Check if the file matches the name keywords
-                    file_name_lower = msg.document.file_name.lower()
-                    is_match = False
-                    for keyword in settings.pdf_collector.pdf_filename_keywords:
-                        if keyword.lower() in file_name_lower:
-                            is_match = True
-                            matching_keyword = keyword
-                            break
-
-                    if is_match:
-                        print(
-                            f"Найден подходящий файл: {msg.document.file_name} (ключевое слово: {matching_keyword})"
-                        )
-                        # If there is no latest PDF, or the current message is newer, update the latest PDF
-                        if latest_date is None or msg.date > latest_date:
-                            latest_pdf = msg
-                            latest_date = msg.date
-                            print(
-                                f"Обновлен самый свежий файл: {msg.document.file_name} от {msg.date}"
-                            )
-
-            # Download the latest PDF if found
-            if latest_pdf:
-                print(
-                    f"Скачиваю самый свежий файл из чата {chat_name}: {latest_pdf.document.file_name}"
-                )
-                file_path = await download_pdf(client, latest_pdf, collection_dir)
-                if file_path:
-                    pdf_info = {
-                        "file_path": file_path,
-                        "file_name": latest_pdf.document.file_name,
-                        "date": latest_pdf.date.strftime("%Y-%m-%d %H:%M:%S"),
-                        "from_user": (
-                            latest_pdf.from_user.first_name
-                            if latest_pdf.from_user
-                            else "Unknown"
-                        ),
-                    }
-                    collection_log.append(
-                        {
-                            "chat_name": chat_name,
-                            "chat_id": chat_id,
-                            "files_count": 1,
-                            "files": [pdf_info],
-                        }
-                    )
-                    total_pdfs += 1
-                    chats_with_files += 1
-                    print(f"Успешно скачан файл из чата {chat_name}: {file_path}")
-            else:
-                print(f"В чате {chat_name} не найдено подходящих PDF файлов")
-
-        except FloodWait as fw:
-            print(f"FloodWait при обработке чата {chat_id}: ждём {fw.value} секунд")
-            await asyncio.sleep(fw.value)
-        except Exception as e:
-            log.exception(f"Ошибка при обработке чата {chat_id}: {e}")
-            collection_log.append(
-                {"chat_name": f"Chat {chat_id}", "chat_id": chat_id, "error": str(e)}
-            )
-
-    # Collect all file paths from the collection log
-    all_files = [
-        f_info["file_path"]
-        for chat_log in collection_log
-        if "files" in chat_log
-        for f_info in chat_log["files"]
-    ]
+    try:
+        collection_log, total_pdfs, chats_with_files, all_files = (
+            await collect_pdf_files(client, chat_ids, collection_dir, limit)
+        )
+    except Exception as e:
+        log.exception(f"Ошибка при сборе PDF файлов: {e}")
+        await status_message.edit(f"❌ Ошибка при сборе PDF файлов: {e}")
+        return
 
     # Save the report
     report_path = os.path.join(collection_dir, "collection_report.txt")
@@ -305,8 +327,7 @@ async def collect_pdf_files(client: Client, message: Message, limit: int = 100):
         result_message = (
             f"📊 Сбор PDF файлов завершен!\n\n"
             f"Всего найдено файлов: {total_pdfs}\n"
-            f"Чатов с файлами: {chats_with_files} из {len(chat_ids)}\n"
-            f"Файлы сохранены в директории: {collection_dir}"
+            f"Чатов с файлами: {chats_with_files} из {len(chat_ids)}"
         )
     else:
         result_message = (
@@ -318,55 +339,50 @@ async def collect_pdf_files(client: Client, message: Message, limit: int = 100):
     await status_message.edit(result_message)
 
     # Send all collected files in batches
-    CHUNK = 5
-    it = iter(all_files)
-    batch = list(islice(it, CHUNK))
-    while batch:
-        media_group = [InputMediaDocument(file_path) for file_path in batch]
-        await client.send_media_group(chat_id=message.chat.id, media=media_group)
+    if all_files:
+        CHUNK = 5
+        it = iter(all_files)
         batch = list(islice(it, CHUNK))
+        while batch:
+            media_group = [InputMediaDocument(file_path) for file_path in batch]
+            await client.send_media_group(chat_id=message.chat.id, media=media_group)
+            batch = list(islice(it, CHUNK))
 
-    status_message = await message.reply(
-        "Извлечение данных из PDF файлов..."
-    )
+    status_message = await message.reply("Извлечение данных из PDF файлов...")
 
-    # Process the collected PDFs with pdf_parser_main
+    # Process the collected PDFs
     pdf_parser_main()
-    
-    await status_message.edit(
-        "✅ Данные успешно извлечены из PDF файлов. "
-    )
-    
-    await status_message.edit(
-        "Сбор данных с сайта Uminers..."
-    )
-    
+
+    await status_message.edit("✅ Данные успешно извлечены из PDF файлов. ")
+
+    await status_message.edit("Сбор данных с сайта Uminers...")
+
     # Run the Uminers WebScraper
     uminers_scraper = UminersScraper(settings.uminers_scraper.urls_to_scrape)
     uminers_scraper.run()
-    
-    await status_message.edit(
-        "Загрузка данных в Google Sheets..."
-    )
-    
-    # Upload collected files to Google Sheetsa
+
+    await status_message.edit("Загрузка данных в Google Sheets...")
+
+    # Upload collected files to Google Sheets
     try:
         link = upload_collected_files_to_google_sheets()
-        await status_message.edit(
-            f"✅ Данные загружены в Google Sheets: {link}"
-        )
+        await status_message.edit(f"✅ Данные загружены в Google Sheets: {link}")
     except gspread.exceptions.APIError as e:
         if e.response.status_code == 403 and "sharing quota" in str(e):
-            print("⚠️  Квота SharingQuota исчерпана – пропускаю загрузку в Google Sheets")
-            
+            print(
+                "⚠️  Квота SharingQuota исчерпана – пропускаю загрузку в Google Sheets"
+            )
+
             await status_message.edit(
                 "⚠️  Квота SharingQuota исчерпана – пропускаю загрузку в Google Sheets"
             )
         else:
-            await status_message.edit(
-                f"❌ Ошибка при загрузке в Google Sheets"
-            )
+            await status_message.edit(f"❌ Ошибка при загрузке в Google Sheets")
             raise
+    except Exception as e:
+        await status_message.edit(f"❌ Ошибка при загрузке в Google Sheets: {e}")
+        log.exception(f"Ошибка при загрузке в Google Sheets: {e}")
+        raise
 
 
 def register_pdf_collector_handlers(app: Client):
@@ -378,4 +394,4 @@ def register_pdf_collector_handlers(app: Client):
         filters.command(["сбор", "collect"]) & (filters.group | filters.private)
     )
     async def pdf_collect_command(client, message):
-        await collect_pdf_files(client, message)
+        await collect_handler(client, message)

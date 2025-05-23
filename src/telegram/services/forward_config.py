@@ -156,12 +156,12 @@ class ForwardConfigService:
             for k, v in config_data.get("chat_info", {}).items():
                 chat_info[int(k)] = v
 
-            print(f"Загружена конфигурация из {self.config_file}")
-            print(f"Настроено {len(source_chat_ids)} исходных чатов")
+            print(f"✅ Загружена конфигурация из {self.config_file}")
+            print(f"\nНастроено {len(source_chat_ids)} исходных чатов\n")
 
             for source_id, dest_ids in forwarding_config.items():
                 print(
-                    f"Из: Чат {source_id} -> В: {', '.join([f'Чат {dest_id}' for dest_id in dest_ids])}"
+                    f"- Из: Чат {source_id} -> В: {', '.join([f'Чат {dest_id}' for dest_id in dest_ids])}"
                 )
 
             return True, source_chat_ids, forwarding_config, chat_info
@@ -258,11 +258,11 @@ class ForwardConfigService:
                     else:
                         chat_info[chat_id] = {"type": str(chat.type.name)}
                 except Exception as e:
-                    print(f"Ошибка доступа к чату {chat_id}: {e}")
+                    log.exception(f"Ошибка доступа к чату {chat_id}: {e}")
                     problematic_chats.add(chat_id)
 
         if problematic_chats:
-            print(f"Найдено недоступных чатов: {len(problematic_chats)}")
+            print(f"❗Найдено недоступных чатов: {len(problematic_chats)}")
 
         # Delete problematic source chats
         for source_id in list(source_chat_ids):
@@ -270,7 +270,7 @@ class ForwardConfigService:
                 source_chat_ids.remove(source_id)
                 if source_id in forwarding_config:
                     del forwarding_config[source_id]
-                    print(f"Чат {source_id} удален из конфигурации (недоступен)")
+                    print(f"⚠️ Чат {source_id} удален из конфигурации (недоступен)")
 
         # Delete problematic destination chats
         for source_id in list(forwarding_config.keys()):
@@ -279,7 +279,7 @@ class ForwardConfigService:
                 if dest_id in problematic_chats:
                     forwarding_config[source_id].remove(dest_id)
                     print(
-                        f"Чат назначения {dest_id} удален из конфигурации (недоступен)"
+                        f"⚠️ Чат назначения {dest_id} удален из конфигурации (недоступен)"
                     )
 
             # If there is no more destination chats, delete the source completely
@@ -288,12 +288,12 @@ class ForwardConfigService:
                 if source_id in source_chat_ids:
                     source_chat_ids.remove(source_id)
                 print(
-                    f"Исходный чат {source_id} удален из конфигурации (нет доступных чатов назначения)"
+                    f"⚠️ Исходный чат {source_id} удален из конфигурации (нет доступных чатов назначения)"
                 )
 
         # Save the updated config
         self.save_config(source_chat_ids, forwarding_config, chat_info)
-        print("Конфигурация обновлена после проверки доступа к чатам")
+        print("✅ Конфигурация обновлена после проверки доступа к чатам")
 
         return source_chat_ids, forwarding_config, chat_info
 
@@ -404,5 +404,5 @@ class ForwardConfigService:
             return True, forwarding_config, chat_info
 
         except Exception as e:
-            log.exception(f"⚠️ Ошибка при проверке папки: {str(e)}")
+            log.exception(f"Ошибка при проверке папки: {str(e)}")
             return False, {}, {}

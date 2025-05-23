@@ -72,12 +72,14 @@ class PDFCollectorConfig(BaseModel):
 
 
 class UminersScraperConfig(BaseModel):
-    # Number of parallel workers
-    max_workers: int = 3
+    # Number of parallel workers for Chrome Selenuim driven scraping
+    # NOTE: Important! If you set it to 1, the program will work slowly on web parsing
+    # but the load on the server will much be lower
+    max_workers: int = 2
     # Result file name
     output_file: str = "Uminers.xlsx"
 
-    # Search URLs  # TODO: Move to env
+    # Search URLs
     urls_to_scrape: list[str] = UMINER_SEARCH_URLS
 
 
@@ -86,6 +88,11 @@ class GoogleSheetsConfig(BaseModel):
     client_secret_file: str = "client_secret_google.json"
     # NOTE: If None -> root folder used
     files_folder_name: str = GOOGLE_DRIVE_FOLDER
+
+
+class CronJobConfig(BaseModel):
+    day_of_week: str = "tue"
+    hour: int = 7
 
 
 class Config(BaseSettings):
@@ -106,6 +113,7 @@ class Config(BaseSettings):
     pdf_collector: PDFCollectorConfig = PDFCollectorConfig()
     uminers_scraper: UminersScraperConfig = UminersScraperConfig()
     google_sheets: GoogleSheetsConfig = GoogleSheetsConfig()
+    cron_job: CronJobConfig = CronJobConfig()
 
 
 settings = Config()

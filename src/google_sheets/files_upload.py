@@ -1,12 +1,14 @@
 from datetime import datetime
+import shutil
+
+import gspread
 from googleapiclient.discovery import build
 from google.oauth2.service_account import Credentials
-import gspread
 from pathlib import Path
 import pandas as pd
-import shutil 
 
 from src.config import settings
+from src.logger import logger as log
 
 
 def ensure_folder(drive, folder):
@@ -78,7 +80,6 @@ def upload_collected_files_to_google_sheets():
     #     spreadsheet.share(email, perm_type="user", role="writer")
 
     file_link = f"https://docs.google.com/spreadsheets/d/{spreadsheet.id}"
-    print("Документ: ", file_link)
 
     # Prepare batch directory for archiving
     batch_dir = ARCHIVE_DIR / title
@@ -87,7 +88,7 @@ def upload_collected_files_to_google_sheets():
     # Upload Excel files
     xlsx_files = sorted(EXCEL_DIR.glob("*.xlsx"))
     if not xlsx_files:
-        print("Нет .xlsx")
+        log.error("Нет .xlsx")
         return
 
     for i, xls in enumerate(xlsx_files, 1):
@@ -110,5 +111,4 @@ def upload_collected_files_to_google_sheets():
         # Move the file to the archive directory
         shutil.move(str(xls), batch_dir / xls.name)
 
-    print("✅ Готово")
     return file_link

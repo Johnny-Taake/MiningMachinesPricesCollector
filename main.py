@@ -1,6 +1,7 @@
 import asyncio
 
 from src import main
+from src.logger import logger as log
 
 
 if __name__ == "__main__":
@@ -10,4 +11,4 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         print("Бот остановлен.")
     except Exception as e:
-        print(f"Произошла ошибка: {e}")
+        log.exception(f"Произошла ошибка: {e}")

@@ -1,12 +1,14 @@
-# src/app.py
-
 import asyncio
 import os
+from zoneinfo import ZoneInfo
 
+from apscheduler.triggers.cron import CronTrigger
 from pyrogram import filters
 from pyrogram.handlers import MessageHandler
 
 from src.config import settings, BotMode
+
+# from src.logger import logger as log
 
 from src.telegram.client import app
 from src.telegram.services import ForwardConfigService
@@ -15,6 +17,9 @@ from src.telegram.handlers import (
     register_pdf_collector_handlers,
 )
 from src.telegram.utils import get_dialog_folder
+
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from src.cron_jobs.collect_data import safe_data_collection_wrapper
 
 
 # Folder with chats for forwarding
@@ -79,15 +84,19 @@ async def main():
         is_collect_folder_exists, _ = await get_dialog_folder(app, COLLECT_FOLDER_NAME)
 
         if not is_admins_folder_exists:
-            print(f"Создайте папку с названием «{ADMINS_FOLDER_NAME}» и добавьте в неё чаты с администраторами бота.")
+            print(
+                f"Создайте папку с названием «{ADMINS_FOLDER_NAME}» и добавьте в неё чаты с администраторами бота."
+            )
             return
 
         if not is_collect_folder_exists:
-            print(f"Создайте папку с названием «{COLLECT_FOLDER_NAME}» и добавьте в неё чаты для сбора PDF.")
+            print(
+                f"Создайте папку с названием «{COLLECT_FOLDER_NAME}» и добавьте в неё чаты для сбора PDF."
+            )
             return
-        
+
         register_pdf_collector_handlers(app)
-        print("Обработчики команд сборщика PDF зарегистрированы")
+        print("✅ Обработчики команд сборщика PDF зарегистрированы")
 
     # --- If forwarding is disabled – run only as a collector ------
     if SKIP_FORWARDING:
@@ -131,9 +140,11 @@ async def main():
 
             # Ask the user if they want to continue only with the collector mode
             while True:
-                response = input(
-                    "Продолжить в режиме только сборщика PDF? (да/нет): "
-                ).lower().strip()
+                response = (
+                    input("Продолжить в режиме только сборщика PDF? (да/нет): ")
+                    .lower()
+                    .strip()
+                )
                 if response in ["да", "yes", "y", "д"]:
                     print("Запуск в режиме сборщика PDF...")
                     print("Запуск сбора: отправьте команду /сбор в любой чат с ботом")
@@ -185,15 +196,51 @@ async def main():
             )
         )
 
-        print("Пересылка настроена и активирована!")
+        print("✅ Пересылка настроена и активирована!")
         print(f"Отслеживаются сообщения из {len(SOURCE_CHAT_IDS)} чатов")
 
         # Print current forwarding configuration
         forward_config_manager.print_current_config(FORWARDING_CONFIG, chat_info)
 
     print("Бот запущен и готов к работе!")
-    print("Запуск сбора PDF: отправьте команду /сбор в чат с ботом")
+    print("Запуск сбора данных: отправьте команду /сбор в чат с ботом")
     print("Нажмите Ctrl+C для завершения работы")
+
+    print("🚀 Запуск scheduler...")
+
+    scheduler = AsyncIOScheduler(
+        job_defaults={
+            "coalesce": True,
+            "max_instances": 1,
+            "misfire_grace_time": 60,
+        }
+    )
+
+    # TESTING
+    # scheduler.add_job(
+    #     safe_data_collection_wrapper,
+    #     "cron",
+    #     minute="*/3",  # Каждые 3 минуты
+    #     id="pdf_collection_job",
+    #     name="Data Collection Every 3 Minutes",
+    #     replace_existing=True,
+    # )
+
+    moscow_tz = ZoneInfo("Europe/Moscow")
+    scheduler.add_job(
+        safe_data_collection_wrapper,
+        trigger=CronTrigger(day_of_week=settings.cron_job.day_of_week, hour=settings.cron_job.hour, minute=0, timezone=moscow_tz),
+        id="weekly_pdf_collection",
+        name="Data Collection Every Tuesday at 07:00 MSK",
+        replace_existing=True,
+    )
+
+    scheduler.start()
+
+    print("✅ Scheduler запущен успешно")
+
+    for job in scheduler.get_jobs():
+        print(f"📅 {job.name} - Следующее выполнение: {job.next_run_time}")
 
     # Keep the bot running until the forceful termination
     await idle()

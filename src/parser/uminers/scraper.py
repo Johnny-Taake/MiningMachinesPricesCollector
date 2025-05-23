@@ -54,7 +54,7 @@ class UminersScraper(BaseScraper):
             product_data["name"] = product_name_elem.text.strip()
             product_data["url"] = product_name_elem.get_attribute("href")
         except Exception as e:
-            self.safe_print(f"Error extracting product name: {e}")
+            self.safe_print(f"⚠️ Ошибка при извлечении названия продукта: {e}")
             product_data["name"] = "Unknown"
             product_data["url"] = None
 
@@ -65,7 +65,7 @@ class UminersScraper(BaseScraper):
             )
             product_data["availability"] = availability_elem.text.strip()
         except Exception as e:
-            self.safe_print(f"Error extracting availability: {e}")
+            self.safe_print(f"⚠️ Ошибка при извлечении данных о доступности: {e}")
             product_data["availability"] = "Unknown"
 
         # Extract characteristics from the card
@@ -81,7 +81,7 @@ class UminersScraper(BaseScraper):
                 )
                 characteristics[name_elem.text.strip()] = value_elem.text.strip()
         except Exception as e:
-            self.safe_print(f"Error extracting characteristics: {e}")
+            self.safe_print(f"⚠️ Ошибка при извлечении характеристик: {e}")
 
         product_data["characteristics"] = characteristics
 
@@ -115,13 +115,13 @@ class UminersScraper(BaseScraper):
                     vat_included = True
                 product_data["vat_included"] = vat_included
             else:
-                self.safe_print("Price element not found with any selector")
+                self.safe_print("⚠️ Цена не найдена с помощью любого селектора")
                 product_data["price"] = "Price not available"
                 product_data["currency"] = "Unknown"
                 product_data["vat_included"] = False
 
         except Exception as e:
-            self.safe_print(f"Error extracting price: {e}")
+            self.safe_print(f"⚠️ Ошибка при извлечении цены: {e}")
             product_data["price"] = "Price not available"
             product_data["currency"] = "Unknown"
             product_data["vat_included"] = False
@@ -131,7 +131,7 @@ class UminersScraper(BaseScraper):
             img_elem = card.find_element(By.CSS_SELECTOR, "a img")
             product_data["image_url"] = img_elem.get_attribute("src")
         except Exception as e:
-            self.safe_print(f"Error extracting image URL: {e}")
+            self.safe_print(f"⚠️ Ошибка при извлечении URL изображения: {e}")
             product_data["image_url"] = None
 
         return product_data
@@ -160,11 +160,11 @@ class UminersScraper(BaseScraper):
                     ).text.strip()
                     specifications[spec_name] = spec_value
                 except Exception as e:
-                    self.safe_print(f"Error extracting specification row: {e}")
+                    self.safe_print(f"⚠️ Ошибка при извлечении ряда спецификаций: {e}")
                     continue
 
         except Exception as e:
-            self.safe_print(f"Error extracting specifications table: {e}")
+            self.safe_print(f"⚠️ Ошибка при извлечении таблицы спецификаций: {e}")
 
         return specifications
 
@@ -179,8 +179,7 @@ class UminersScraper(BaseScraper):
             products = []
             # Find all product cards
             product_cards = self.driver.find_elements(
-                By.CSS_SELECTOR,
-                ".product-card, .catalog-item, div[data-card-product-id]",
+                By.CSS_SELECTOR, "div.catalog-item, div.card, div.product-card"
             )
 
             if not product_cards:
@@ -189,7 +188,8 @@ class UminersScraper(BaseScraper):
                 )
                 # Try alternative selectors
                 product_cards = self.driver.find_elements(
-                    By.CSS_SELECTOR, "div.catalog-item, div.card, div.product-card"
+                    By.CSS_SELECTOR,
+                    ".product-card, .catalog-item, div[data-card-product-id]",
                 )
 
             self.safe_print(f"Found {len(product_cards)} product cards")
@@ -201,7 +201,7 @@ class UminersScraper(BaseScraper):
             return products
 
         except Exception as e:
-            self.safe_print(f"Error extracting product cards: {e}")
+            self.safe_print(f"⚠️ Ошибка при извлечении карточек продуктов: {e}")
             return []
 
     def process_product(self, product: Dict[str, Any]) -> Dict[str, Any]:
@@ -213,7 +213,7 @@ class UminersScraper(BaseScraper):
             if not product["url"]:
                 return None
 
-            self.safe_print(f"\nProcessing product: {product['name']}")
+            self.safe_print(f"\nОбработка: {product['name']}")
             # Navigate to product details page
             driver.get(product["url"])
             time.sleep(2)  # Wait for page to load
@@ -240,11 +240,11 @@ class UminersScraper(BaseScraper):
                         ).text.strip()
                         detailed_specs[spec_name] = spec_value
                     except Exception as e:
-                        self.safe_print(f"Error extracting specification row: {e}")
+                        self.safe_print(f"Ошибка при извлечении ряда: {e}")
                         continue
 
             except Exception as e:
-                self.safe_print(f"Error extracting specifications table: {e}")
+                self.safe_print(f"⚠️ Ошибка при извлечении таблицы спецификаций: {e}")
                 detailed_specs = {}
 
             # Get price and currency information
@@ -282,7 +282,7 @@ class UminersScraper(BaseScraper):
             }
 
             self.safe_print(
-                f"Added product: {combined_model}, Hashrate: {hashrate}, Power: {power_consumption}, "
+                f"Добавлен продукт: {combined_model}, Hashrate: {hashrate}, Power: {power_consumption}, "
                 f"Price: {clean_price} {currency} ({vat_status})"
             )
 
@@ -290,11 +290,11 @@ class UminersScraper(BaseScraper):
 
         except Exception as e:
             self.safe_print(
-                f"Error processing product {product.get('name', 'Unknown')}: {e}"
+                f"⚠️ Ошибка при обработке продукта {product.get('name', 'Unknown')}: {e}"
             )
             return None
         finally:
-            driver.quit()  # Close this browser instance
+            driver.quit()
 
     def process_all_urls(self):
         """Process all URLs, extract data from all product cards, and save to Excel"""
@@ -303,19 +303,16 @@ class UminersScraper(BaseScraper):
 
         # First, collect all product cards from all URLs sequentially
         for url in self.urls:
-            self.safe_print(f"\nProcessing URL: {url}")
+            self.safe_print(f"\nОбрабатывается URL: {url}")
             self.open_url(url)
 
             # Extract all product cards on this page
             products = self.extract_product_cards()
-            self.safe_print(f"Found {len(products)} products on this page")
 
             # Store all product cards for later parallel processing
             all_product_cards.extend(products)
 
-        self.safe_print(
-            f"\nCollected {len(all_product_cards)} total product cards from all URLs"
-        )
+        self.safe_print(f"\nВсего найдено карточек продуктов: {len(all_product_cards)}")
 
         # Process product cards in parallel
         with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
@@ -336,7 +333,7 @@ class UminersScraper(BaseScraper):
                             all_products.append(result)
                 except Exception as e:
                     self.safe_print(
-                        f"Product {product.get('name', 'Unknown')} generated an exception: {e}"
+                        f"Продукт: {product.get('name', 'Unknown')} при обработке вызвал исключение: {e}"
                     )
 
         # Save all products to Excel
@@ -346,7 +343,7 @@ class UminersScraper(BaseScraper):
 
     def save_to_excel(self, products):
         if not products:
-            self.safe_print("No products to save to Excel")
+            self.safe_print("Нет продуктов для сохранения в Excel")
             return
 
         try:
@@ -363,31 +360,31 @@ class UminersScraper(BaseScraper):
             # 3. Save to Excel
             df.to_excel(full_path, index=False)
             self.safe_print(
-                f"\nSuccessfully saved {len(products)} products to {full_path}"
+                f"\n✅ Успешно сохранено {len(products)} продуктов в {full_path}"
             )
         except Exception as e:
-            self.safe_print(f"Error saving to Excel: {e}")
+            self.safe_print(f"⚠️ Ошибка при сохранении в Excel: {e}")
 
             try:
                 csv_path = full_path.with_suffix(".csv")
                 df.to_csv(csv_path, index=False)
-                self.safe_print(f"Saved as CSV instead: {csv_path}")
+                self.safe_print(f"Сохранено в CSV: {csv_path}")
             except Exception as csv_error:
-                self.safe_print(f"Error saving to CSV: {csv_error}")
+                self.safe_print(f"⚠️ Ошибка при сохранении в CSV: {csv_error}")
 
     def run(self):
         """Main method to run the scraper"""
         try:
             self.safe_print(
-                f"Starting scraper with {len(self.urls)} URLs and {self.max_workers} parallel workers"
+                f"Начинается обработка {len(self.urls)} URLs с {self.max_workers} воркерами"
             )
             products = self.process_all_urls()
-            self.safe_print(f"Scraping completed. Processed {len(products)} products")
+            self.safe_print(f"Сборка завершена. Обработано {len(products)} продуктов.")
             return products
         except Exception as e:
-            self.safe_print(f"Error running scraper: {e}")
+            self.safe_print(f"⚠️ Ошибка при запуске скрапера: {e}")
             return []
         finally:
-            self.safe_print("Closing browser...")
+            self.safe_print("Закрывается браузер...")
             if hasattr(self, "driver") and self.driver:
                 self.driver.quit()
