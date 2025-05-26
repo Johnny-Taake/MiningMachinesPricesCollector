@@ -106,6 +106,10 @@
 
     https://console.developers.google.com/apis/api/sheets.googleapis.com/
 
+Подключите Google Drive API к проекту — это необходимо для загрузки данных в Google Drive.
+
+    https://console.cloud.google.com/apis/api/drive.googleapis.com/
+
 Шаг 6:
 
 - Создать Google Drive Папку, ee ID в .env, всех, кто должен видеть папку добавь в нее, а так же добавь email ранее созданного сервисного аккаунта с правами на чтение и запись
