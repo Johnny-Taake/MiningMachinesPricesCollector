@@ -16,7 +16,6 @@ OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 # IBMM:
 # top,left,bottom,right
 IBMM_TABULA_AREA = [118, 28, 800, 580]
-# IBMM_TABULA_AREA = [30, 20, 800, 580]
 
 # 6 dividers → 7 columns
 IBMM_TABULA_COLUMNS = [140, 240, 340, 400, 470, 530]
@@ -28,6 +27,21 @@ IBMM_HEADER = [
     "Цена $ Москва",
     "Цена ₽ Китай",
     "Цена $ Китай",
+]
+
+# Uminers:
+# top,left,bottom,right
+UMINERS_TABULA_AREA = [245, 65, 2150, 1500]
+
+# 5 dividers → 6 columns
+UMINERS_TABULA_COLUMNS = [330, 500, 700, 940, 1250]
+UMINERS_HEADER = [
+    "Модель",
+    "Хэшрейт",
+    "Цена у.е./$",
+    "Цена ₽",
+    "Цена $",
+    "Примечание",
 ]
 
 
@@ -118,17 +132,24 @@ def extract_ibmm(pdf_path: Path) -> pd.DataFrame:
     return df.reset_index(drop=True)
 
 
-# Routing function
 def route_extract(pdf_path: Path) -> pd.DataFrame:
     name = pdf_path.stem.lower()
     if name.startswith(("ibmm", "ibmm_", "ibm")):
         print("   → профиль IBMM")
         return extract_ibmm(pdf_path)
+
     if name.startswith(("promminer", "promminer_")):
         print("   → профиль Promminer CV2")
         from .prominer_cv2 import extract_promminer
 
         return extract_promminer(pdf_path, save_cells=False)
+
+    if name.startswith(("рустехмаш", "рустехмаш_", "uminers", "uminers_")):
+        print("   → профиль Uminers CV2")
+        from .uminers_cv2 import extract_uminers
+
+        return extract_uminers(pdf_path, save_cells=False)
+
     print("   → профиль DEFAULT (Tabula)")
     frames = fallback_tables(pdf_path)
     return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()

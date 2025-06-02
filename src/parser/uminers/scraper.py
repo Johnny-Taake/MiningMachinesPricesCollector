@@ -1,390 +1,254 @@
-from typing import List, Dict, Any
-import time
-import pandas as pd
-from pathlib import Path
+from __future__ import annotations
 
 import re
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from pathlib import Path
 from threading import RLock
+from typing import Any, Dict, List
 
+import pandas as pd
 from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.support.ui import WebDriverWait
 
-from src.parser.base import BaseScraper
 from src.config import settings
+from src.parser.base import BaseScraper
+
+
+_CURRENCY_PAT = re.compile(r"\b(USDT|USD|\$|€|₽)\b", re.I)
+_PRICE_NUM_PAT = re.compile(r"[\d\s]+[.,]?\d*")
+
+
+def _parse_price(text: str) -> tuple[str, str]:
+    """
+    Вернёт (price_number, currency) из строки вида «6 399 USDT».
+    Если не найдено – ('N/A', 'N/A')
+    """
+    cur_m = _CURRENCY_PAT.search(text)
+    cur = cur_m.group(1).upper() if cur_m else "N/A"
+
+    num_m = _PRICE_NUM_PAT.search(text.replace("\u202f", " "))
+    if not num_m:
+        return "N/A", cur
+    # убираем пробелы / запятые → точку
+    num = num_m.group(0).replace(" ", "").replace(",", ".")
+    return num, cur
+
+
+def _collect_categories(card) -> dict[str, str]:
+    """Достаём буллеты «Special offer / NEW / In stock …»"""
+    cats = [
+        c.text.strip()
+        for c in card.find_elements(By.CSS_SELECTOR, "a.card__categories div")
+    ]
+    return {
+        "labels": "; ".join(
+            c for c in cats if "special" in c.lower() or "new" in c.lower()
+        ),
+        "availability": next(
+            (
+                c
+                for c in cats
+                if any(k in c.lower() for k in ("stock", "sold", "пре-заказ"))
+            ),
+            "Unknown",
+        ),
+    }
 
 
 class UminersScraper(BaseScraper):
+    """Скрапер vitrina.uminers.com (ASIC-каталог)."""
+
     def __init__(
         self,
-        urls: List[str],
+        url: str = settings.uminers_scraper.url_to_scrape,
         output_file: str = settings.uminers_scraper.output_file,
         max_workers: int = settings.uminers_scraper.max_workers,
     ):
-        # Initialize the base scraper
-        super().__init__(urls)
+        super().__init__([url])
         self.output_file = output_file
-        # Number of parallel workers
         self.max_workers = max_workers
-        self.all_products_data = []
-        # Lock for thread-safe printing
-        self.print_lock = RLock()
-        # Lock for thread-safe data access
-        self.data_lock = RLock()
+        self.print_lock, self.data_lock = RLock(), RLock()
 
-    def safe_print(self, message: str):
-        """Thread-safe printing"""
+    def safe_print(self, msg: str) -> None:
         with self.print_lock:
-            print(message)
+            print(msg)
 
-    def open_url(self, url: str):
-        """Open a specific URL and return the page title"""
+    def open_url(self, url):
+        if not isinstance(url, str):
+            url = str(url or "")
+        if not url.strip():
+            raise ValueError(
+                "URL is empty – проверьте settings.uminers_scraper.url_to_scrape"
+            )
         self.driver.get(url)
-        # Print the title of the page
-        self.safe_print(f"Заголовок страницы: {self.driver.title}")
+        self.safe_print(f"Открыта страница: {self.driver.title}")
 
     def extract_card_data(self, card) -> Dict[str, Any]:
-        """Extract data from a specific product card element"""
-        product_data = {}
+        """Снимаем всё, что есть прямо в карточке."""
+        data: Dict[str, Any] = {}
 
-        # Extract product name
+        # — название / URL
+        title_a = card.find_element(By.CSS_SELECTOR, "h3.card__title a")
+        data["name"] = title_a.text.strip()
+        data["url"] = title_a.get_attribute("href")
+
+        # — availability + спец-метки
+        data.update(_collect_categories(card))
+
+        # — hashrate / algorithm / payback
+        for blk in card.find_elements(By.CSS_SELECTOR, "div.card__characteristic"):
+            k = blk.find_element(
+                By.CSS_SELECTOR, "div.card__characteristicName"
+            ).text.strip()
+            v = blk.find_element(
+                By.CSS_SELECTOR, "div.card__characteristicValue"
+            ).text.strip()
+            if k.lower().startswith("hashrate"):
+                data["hashrate"] = v
+            elif k.lower().startswith("algorithm"):
+                data["algorithm"] = v
+            elif k.lower().startswith("payback"):
+                data["payback"] = v
+
+        # — crypto-иконки
+        data["coins"] = ", ".join(
+            ic.get_attribute("alt")
+            for ic in card.find_elements(By.CSS_SELECTOR, ".card__crypto img")
+        )
+
+        # — цена
+        price_raw = card.find_element(By.CSS_SELECTOR, "a.card__price").text.strip()
+        data["price"], data["currency"] = _parse_price(price_raw)
+        data["vat_included"] = "(с НДС)" in price_raw
+
+        # — картинка
         try:
-            product_name_elem = card.find_element(By.CSS_SELECTOR, "h3.card__title a")
-            product_data["name"] = product_name_elem.text.strip()
-            product_data["url"] = product_name_elem.get_attribute("href")
-        except Exception as e:
-            self.safe_print(f"⚠️ Ошибка при извлечении названия продукта: {e}")
-            product_data["name"] = "Unknown"
-            product_data["url"] = None
+            img = card.find_element(By.CSS_SELECTOR, "a img")
+            data["image_url"] = img.get_attribute("src")
+        except Exception:
+            data["image_url"] = None
 
-        # Extract availability status
-        try:
-            availability_elem = card.find_element(
-                By.CSS_SELECTOR, "div.card__category_white"
-            )
-            product_data["availability"] = availability_elem.text.strip()
-        except Exception as e:
-            self.safe_print(f"⚠️ Ошибка при извлечении данных о доступности: {e}")
-            product_data["availability"] = "Unknown"
+        # — sold-out?
+        data["sold_out"] = "-soldout" in card.get_attribute("class")
+        return data
 
-        # Extract characteristics from the card
-        characteristics = {}
-        try:
-            char_elems = card.find_elements(By.CSS_SELECTOR, "div.card__characteristic")
-            for char_elem in char_elems:
-                name_elem = char_elem.find_element(
-                    By.CSS_SELECTOR, "div.card__characteristicName"
-                )
-                value_elem = char_elem.find_element(
-                    By.CSS_SELECTOR, "div.card__characteristicValue"
-                )
-                characteristics[name_elem.text.strip()] = value_elem.text.strip()
-        except Exception as e:
-            self.safe_print(f"⚠️ Ошибка при извлечении характеристик: {e}")
+    @staticmethod
+    def _extract_specs(driver) -> dict[str, str]:
+        spec = {}
+        for row in driver.find_elements(By.CSS_SELECTOR, "table.spec-table tr"):
+            try:
+                k = row.find_element(By.CSS_SELECTOR, "td.specL").text.strip()
+                v = row.find_element(By.CSS_SELECTOR, "td.specV").text.strip()
+                spec[k] = v
+            except Exception:
+                continue
+        return spec
 
-        product_data["characteristics"] = characteristics
-
-        # Extract price, including currency and VAT status
-        try:
-            # Try the original selector
-            price_elems = card.find_elements(By.CSS_SELECTOR, "a.cardprice")
-
-            # If not found, try with alternative selectors
-            if not price_elems:
-                price_elems = card.find_elements(By.CSS_SELECTOR, "a.card__price")
-
-            if price_elems:
-                price_elem = price_elems[0]
-                price_text = price_elem.text.strip()
-                product_data["price"] = price_text
-
-                # Extract currency
-                currency = "₽"  # Default currency
-                if "₽" in price_text:
-                    currency = "₽"
-                elif "$" in price_text:
-                    currency = "$"
-                elif "€" in price_text:
-                    currency = "€"
-                product_data["currency"] = currency
-
-                # Check for VAT inclusion
-                vat_included = False
-                if "(с НДС)" in price_text:
-                    vat_included = True
-                product_data["vat_included"] = vat_included
-            else:
-                self.safe_print("⚠️ Цена не найдена с помощью любого селектора")
-                product_data["price"] = "Price not available"
-                product_data["currency"] = "Unknown"
-                product_data["vat_included"] = False
-
-        except Exception as e:
-            self.safe_print(f"⚠️ Ошибка при извлечении цены: {e}")
-            product_data["price"] = "Price not available"
-            product_data["currency"] = "Unknown"
-            product_data["vat_included"] = False
-
-        # Extract image URL
-        try:
-            img_elem = card.find_element(By.CSS_SELECTOR, "a img")
-            product_data["image_url"] = img_elem.get_attribute("src")
-        except Exception as e:
-            self.safe_print(f"⚠️ Ошибка при извлечении URL изображения: {e}")
-            product_data["image_url"] = None
-
-        return product_data
-
-    def extract_detailed_specifications(self) -> Dict[str, str]:
-        """Extract detailed specifications from the product page"""
-        specifications = {}
-
-        wait = WebDriverWait(self.driver, 10)
-        try:
-            # Wait for specifications table to load
-            wait.until(EC.presence_of_element_located((By.CLASS_NAME, "spec-table")))
-
-            # Extract all specs from the table
-            spec_rows = self.driver.find_elements(
-                By.CSS_SELECTOR, "table.spec-table tr"
-            )
-
-            for row in spec_rows:
-                try:
-                    spec_name = row.find_element(
-                        By.CSS_SELECTOR, "td.specL"
-                    ).text.strip()
-                    spec_value = row.find_element(
-                        By.CSS_SELECTOR, "td.specV"
-                    ).text.strip()
-                    specifications[spec_name] = spec_value
-                except Exception as e:
-                    self.safe_print(f"⚠️ Ошибка при извлечении ряда спецификаций: {e}")
-                    continue
-
-        except Exception as e:
-            self.safe_print(f"⚠️ Ошибка при извлечении таблицы спецификаций: {e}")
-
-        return specifications
+    def _pick_power(self, specs: dict[str, str]) -> str:
+        """Power / Мощность независимо от языка."""
+        for k, v in specs.items():
+            if k.lower().startswith(("power", "мощность")):
+                return v
+        return "Unknown"
 
     def extract_product_cards(self) -> List[Dict[str, Any]]:
-        """Extract data from all product cards on the page"""
-        wait = WebDriverWait(self.driver, 10)
+        """Собираем ВСЕ карточки на текущей странице."""
+        WebDriverWait(self.driver, 10).until(
+            EC.presence_of_element_located((By.CLASS_NAME, "card__title"))
+        )
+        cards = self.driver.find_elements(
+            By.CSS_SELECTOR,
+            "div.catalog-item, div.card, div.product-card, div[data-card-product-id]",
+        )
+        self.safe_print(f"  → карточек на странице: {len(cards)}")
+        return [self.extract_card_data(c) for c in cards]
 
-        try:
-            # Wait for products to load
-            wait.until(EC.presence_of_element_located((By.CLASS_NAME, "card__title")))
-
-            products = []
-            # Find all product cards
-            product_cards = self.driver.find_elements(
-                By.CSS_SELECTOR, "div.catalog-item, div.card, div.product-card"
-            )
-
-            if not product_cards:
-                self.safe_print(
-                    "No product cards found. Trying alternative selectors..."
-                )
-                # Try alternative selectors
-                product_cards = self.driver.find_elements(
-                    By.CSS_SELECTOR,
-                    ".product-card, .catalog-item, div[data-card-product-id]",
-                )
-
-            self.safe_print(f"Found {len(product_cards)} product cards")
-
-            for card in product_cards:
-                product_data = self.extract_card_data(card)
-                products.append(product_data)
-
-            return products
-
-        except Exception as e:
-            self.safe_print(f"⚠️ Ошибка при извлечении карточек продуктов: {e}")
-            return []
-
-    def process_product(self, product: Dict[str, Any]) -> Dict[str, Any]:
-        """Process a single product in a separate thread"""
-        # Create a new WebDriver instance for this thread
-        driver = self.create_driver()
-
-        try:
-            if not product["url"]:
-                return None
-
-            self.safe_print(f"\nОбработка: {product['name']}")
-            # Navigate to product details page
-            driver.get(product["url"])
-            time.sleep(2)  # Wait for page to load
-
-            # Extract detailed specifications
-            wait = WebDriverWait(driver, 10)
-            try:
-                # Wait for specifications table to load
-                wait.until(
-                    EC.presence_of_element_located((By.CLASS_NAME, "spec-table"))
-                )
-
-                # Extract all specs from the table
-                spec_rows = driver.find_elements(By.CSS_SELECTOR, "table.spec-table tr")
-
-                detailed_specs = {}
-                for row in spec_rows:
-                    try:
-                        spec_name = row.find_element(
-                            By.CSS_SELECTOR, "td.specL"
-                        ).text.strip()
-                        spec_value = row.find_element(
-                            By.CSS_SELECTOR, "td.specV"
-                        ).text.strip()
-                        detailed_specs[spec_name] = spec_value
-                    except Exception as e:
-                        self.safe_print(f"Ошибка при извлечении ряда: {e}")
-                        continue
-
-            except Exception as e:
-                self.safe_print(f"⚠️ Ошибка при извлечении таблицы спецификаций: {e}")
-                detailed_specs = {}
-
-            # Get price and currency information
-            price = product.get("price", "Price not available")
-            currency = product.get("currency", "₽")
-            vat_included = product.get("vat_included", False)
-            vat_status = "с НДС" if vat_included else "без НДС"
-
-            # Extract required fields
-            manufacturer = detailed_specs.get("Производитель", "Unknown")
-            model = detailed_specs.get("Модель", "Unknown")
-            if model == "−" or not model:
-                # Use the product name if model is not available
-                model = product.get("name", "Unknown").replace(manufacturer, "").strip()
-
-            combined_model = f"{manufacturer} {model}".strip()
-
-            hashrate = detailed_specs.get("Хэшрейт", "Unknown")
-            power_consumption = detailed_specs.get("Мощность", "Unknown")
-
-            # Extract price value from the price string
-            # Remove currency symbol and VAT info
-            clean_price = re.sub(r"[₽$€]|\(.*?\)", "", price).strip()
-            if "−" in clean_price:
-                clean_price = "N/A"
-
-            # Create a record for Excel
-            product_record = {
-                "Модель": combined_model,
-                "Хэшрейт": hashrate,
-                "Потребление": power_consumption,
-                "Цена": clean_price,
-                "Валюта": currency,
-                "НДС": vat_status,
-            }
-
-            self.safe_print(
-                f"Добавлен продукт: {combined_model}, Hashrate: {hashrate}, Power: {power_consumption}, "
-                f"Price: {clean_price} {currency} ({vat_status})"
-            )
-
-            return product_record
-
-        except Exception as e:
-            self.safe_print(
-                f"⚠️ Ошибка при обработке продукта {product.get('name', 'Unknown')}: {e}"
-            )
+    def _process_card(self, card: dict[str, Any]) -> dict[str, Any] | None:
+        if not card["url"]:
             return None
-        finally:
-            driver.quit()
 
-    def process_all_urls(self):
-        """Process all URLs, extract data from all product cards, and save to Excel"""
-        all_products = []
-        all_product_cards = []
+        t0 = time.perf_counter()
+        self.safe_print(f"  • {card['name']} → {card['url']}")
 
-        # First, collect all product cards from all URLs sequentially
-        for url in self.urls:
-            self.safe_print(f"\nОбрабатывается URL: {url}")
-            self.open_url(url)
-
-            # Extract all product cards on this page
-            products = self.extract_product_cards()
-
-            # Store all product cards for later parallel processing
-            all_product_cards.extend(products)
-
-        self.safe_print(f"\nВсего найдено карточек продуктов: {len(all_product_cards)}")
-
-        # Process product cards in parallel
-        with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
-            # Submit all product processing tasks
-            future_to_product = {
-                executor.submit(self.process_product, product): product
-                for product in all_product_cards
-            }
-
-            # Process results as they complete
-            for future in as_completed(future_to_product):
-                product = future_to_product[future]
-                try:
-                    result = future.result()
-                    if result:
-                        # Thread-safe update of all_products
-                        with self.data_lock:
-                            all_products.append(result)
-                except Exception as e:
-                    self.safe_print(
-                        f"Продукт: {product.get('name', 'Unknown')} при обработке вызвал исключение: {e}"
-                    )
-
-        # Save all products to Excel
-        self.save_to_excel(all_products)
-
-        return all_products
-
-    def save_to_excel(self, products):
-        if not products:
-            self.safe_print("Нет продуктов для сохранения в Excel")
-            return
-
+        drv = self.create_driver()
         try:
-            df = pd.DataFrame(products)
-
-            # 1. Catalog -> absolute Path
-            save_dir = Path(settings.prepared_excels_dir).expanduser().resolve()
-            save_dir.mkdir(parents=True, exist_ok=True)
-
-            # 2. File name
-            file_name = Path(self.output_file).name
-            full_path = save_dir / file_name
-
-            # 3. Save to Excel
-            df.to_excel(full_path, index=False)
-            self.safe_print(
-                f"\n✅ Успешно сохранено {len(products)} продуктов в {full_path}"
+            drv.get(card["url"])
+            WebDriverWait(drv, 10).until(
+                EC.presence_of_element_located((By.CLASS_NAME, "spec-table"))
             )
-        except Exception as e:
-            self.safe_print(f"⚠️ Ошибка при сохранении в Excel: {e}")
+            specs = self._extract_specs(drv)
+        finally:
+            drv.quit()
 
+        dt = time.perf_counter() - t0
+        self.safe_print(f"    ↳ спецификация за {dt:0.1f}s")
+
+        record = {
+            "Модель": card["name"],
+            "Алгоритм": card.get("algorithm", ""),
+            "Хэшрейт": card.get("hashrate", specs.get("Хэшрейт", "Unknown")),
+            "Потребление": self._pick_power(specs),
+            "Цена": card["price"],
+            "Валюта": card["currency"],
+            "НДС": "с НДС" if card["vat_included"] else "без НДС",
+            "Доступность": card["availability"],
+            "Склад": (
+                card["availability"].split(",")[-1].strip()
+                if "," in card["availability"]
+                else ""
+            ),
+            "Спец-метка": card["labels"],
+            "Coins": card["coins"],
+        }
+        return record
+
+    def _scan_catalog(self) -> list[dict]:
+        raw, page = [], 1
+        while True:
+            self.safe_print(f"== Страница {page} ==")
+            raw.extend(self.extract_product_cards())
             try:
-                csv_path = full_path.with_suffix(".csv")
-                df.to_csv(csv_path, index=False)
-                self.safe_print(f"Сохранено в CSV: {csv_path}")
-            except Exception as csv_error:
-                self.safe_print(f"⚠️ Ошибка при сохранении в CSV: {csv_error}")
+                nxt = self.driver.find_element(
+                    By.CSS_SELECTOR, 'a.pagination__item[rel="next"]:not(.disabled)'
+                )
+                nxt.click()
+                WebDriverWait(self.driver, 10).until(EC.staleness_of(nxt))
+                page += 1
+            except Exception:
+                break
+        return raw
 
-    def run(self):
-        """Main method to run the scraper"""
-        try:
-            self.safe_print(
-                f"Начинается обработка {len(self.urls)} URLs с {self.max_workers} воркерами"
-            )
-            products = self.process_all_urls()
-            self.safe_print(f"Сборка завершена. Обработано {len(products)} продуктов.")
-            return products
-        except Exception as e:
-            self.safe_print(f"⚠️ Ошибка при запуске скрапера: {e}")
-            return []
-        finally:
-            self.safe_print("Закрывается браузер...")
-            if hasattr(self, "driver") and self.driver:
-                self.driver.quit()
+    def run(self) -> List[Dict[str, Any]]:
+        self.safe_print(f"▶ Старт. Потоков: {self.max_workers}")
+        self.open_url(self.urls[0])
+
+        raw_cards = self._scan_catalog()
+        self.safe_print(f"⛏  Найдено карточек всего: {len(raw_cards)}")
+
+        products: list[dict] = []
+        with ThreadPoolExecutor(max_workers=self.max_workers) as ex:
+            futures = {ex.submit(self._process_card, c): c for c in raw_cards}
+            for fut in as_completed(futures):
+                res = fut.result()
+                if res:
+                    with self.data_lock:
+                        products.append(res)
+
+        self._save_excel(products)
+        self.safe_print(f"✅ Готово. Сохранено строк: {len(products)}")
+        return products
+
+    def _save_excel(self, rows: list[dict]) -> None:
+        if not rows:
+            self.safe_print("Нет данных для сохранения.")
+            return
+        df = pd.DataFrame(rows)
+        p = (
+            Path(settings.prepared_excels_dir).expanduser()
+            / Path(self.output_file).name
+        ).resolve()
+        p.parent.mkdir(parents=True, exist_ok=True)
+        df.to_excel(p, index=False)
+        self.safe_print(f"Файл сохранён: {p}")

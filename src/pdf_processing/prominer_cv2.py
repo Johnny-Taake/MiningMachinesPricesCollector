@@ -59,7 +59,7 @@ def _fix_hashrate_unit(txt: str) -> str:
 def _clean_cell(v: str) -> str:
     if not isinstance(v, str):
         return v
-    
+
     # Remove leading vertical bars
     t = re.sub(r"^[\|Il]+\s*", "", v.strip())
 
@@ -220,7 +220,7 @@ def extract_promminer(pdf_path: Path, save_cells: bool = False) -> pd.DataFrame:
     except Exception as e:
         print("   ⛔ Ошибка:", e)
         return pd.DataFrame(columns=PROM_HEADER)
-    
+
     finally:
         # Cleanup temp images
         for img in TEMP_IMG_DIR.glob("*.png"):

@@ -161,7 +161,7 @@ async def collect_data_to_google_sheets_cron_job(client: Client, limit: int = 10
 
         try:
             # Run the Uminers WebScraper
-            uminers_scraper = UminersScraper(settings.uminers_scraper.urls_to_scrape)
+            uminers_scraper = UminersScraper(settings.uminers_scraper.url_to_scrape)
             uminers_scraper.run()
             print("✅ Данные с сайта Uminers собраны.")
         except Exception as e:

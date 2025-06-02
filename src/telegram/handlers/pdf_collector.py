@@ -341,7 +341,7 @@ async def collect_handler(client: Client, message: Message, limit: int = 100):
 
     await status_message.edit("Сбор данных с сайта Uminers...")
 
-    from src.parser.uminers.scarper import UminersScraper
+    from src.parser.uminers.scraper import UminersScraper
 
     # Run the Uminers WebScraper
     uminers_scraper = UminersScraper(settings.uminers_scraper.url_to_scrape)

@@ -45,19 +45,6 @@
 
 ---
 
-## Настройка Uminers
-
-Выберете ссылки с результатами поиска по товарам с Uminers и добавьте в файл `.env`:
-Добавьте в файл `.env` строки:
-
-  ```
-  UMINER_SEARCH_URLS=https://uminers.com/ru/catalog/asic-miner/1?sort=rated&manufacturer%5B%5D=2,https://uminers.com/ru/catalog/asic-miner/1?sort=rated&manufacturer%5B%5D=1
-  ```
-
-Через запятую
-
----
-
 ## Настройка Google Sheets
 
 Шаг 1: Создание проекта

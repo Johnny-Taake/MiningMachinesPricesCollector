@@ -26,6 +26,7 @@ RUN wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub \
     > /etc/apt/sources.list.d/google-chrome.list && \
     apt-get update && \
     apt-get install -y google-chrome-stable && \
+    apt-get install tesseract-ocr-rus &&\
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
