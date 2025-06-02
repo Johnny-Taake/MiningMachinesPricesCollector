@@ -22,7 +22,7 @@ class BaseScraper:
         service = Service(ChromeDriverManager().install())
         
         driver = webdriver.Chrome(service=service, options=chrome_options)
-        driver.set_page_load_timeout(30)
+        driver.set_page_load_timeout(60)
 
         return driver
 
