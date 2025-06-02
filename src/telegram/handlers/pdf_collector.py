@@ -15,7 +15,7 @@ from pyrogram.raw import functions
 from src.config import settings
 from src.logger import logger as log
 from src.pdf_processing import pdf_parser_main
-from src.parser.uminers import UminersScraper
+
 from src.google_sheets import upload_collected_files_to_google_sheets
 
 
@@ -67,45 +67,23 @@ async def download_pdf(client: Client, message: Message, save_dir: str) -> str |
     Download a PDF file from a Telegram message and save it to a specified directory.
     Returns the path to the downloaded file or None if the download failed.
     """
-    try:
-        if not message.document or not message.document.file_name.lower().endswith(
-            ".pdf"
-        ):
-            return None
 
-        # Check for keywords in the file name
-        file_name_lower = message.document.file_name.lower()
-        is_match = False
-        for keyword in settings.pdf_collector.pdf_filename_keywords:
-            if keyword.lower() in file_name_lower:
-                is_match = True
-                break
+    # Create directory if it doesn't exist
+    os.makedirs(save_dir, exist_ok=True)
 
-        if not is_match:
-            print(
-                f"Файл {message.document.file_name} не содержит ключевых слов из списка, пропускаем"
-            )
-            return None
+    # Form a file name
+    chat_title = message.chat.title or str(message.chat.id)
+    chat_title = re.sub(r"[^\w\-_\. ]", "_", chat_title)
 
-        # Create directory if it doesn't exist
-        os.makedirs(save_dir, exist_ok=True)
+    # Save the file under the chat name
+    file_name = f"{chat_title}.pdf"
+    file_path = os.path.join(save_dir, file_name)
 
-        # Form a file name
-        chat_title = message.chat.title or str(message.chat.id)
-        chat_title = re.sub(r"[^\w\-_\. ]", "_", chat_title)
+    # Download the file
+    await client.download_media(message, file_path)
+    print(f"Скачан PDF файл: {file_path}")
 
-        # Save the file under the chat name
-        file_name = f"{chat_title}.pdf"
-        file_path = os.path.join(save_dir, file_name)
-
-        # Download the file
-        await client.download_media(message, file_path)
-        print(f"Скачан PDF файл: {file_path}")
-        return file_path
-
-    except Exception as e:
-        log.exception(f"Ошибка при скачивании PDF: {e}")
-        return None
+    return file_path
 
 
 async def collect_pdf_files(
@@ -148,11 +126,17 @@ async def collect_pdf_files(
                     # Check if the file matches the name keywords
                     file_name_lower = msg.document.file_name.lower()
                     is_match = False
-                    for keyword in settings.pdf_collector.pdf_filename_keywords:
-                        if keyword.lower() in file_name_lower:
-                            is_match = True
-                            matching_keyword = keyword
-                            break
+                    matching_keyword = ""
+
+                    if chat_name in settings.pdf_collector.no_pdf_filename_check_chats:
+                        is_match = True
+                        matching_keyword = "No check"
+                    else:
+                        for keyword in settings.pdf_collector.pdf_filename_keywords:
+                            if keyword.lower() in file_name_lower:
+                                is_match = True
+                                matching_keyword = keyword
+                                break
 
                     if is_match:
                         print(
@@ -357,8 +341,10 @@ async def collect_handler(client: Client, message: Message, limit: int = 100):
 
     await status_message.edit("Сбор данных с сайта Uminers...")
 
+    from src.parser.uminers.scarper import UminersScraper
+
     # Run the Uminers WebScraper
-    uminers_scraper = UminersScraper(settings.uminers_scraper.urls_to_scrape)
+    uminers_scraper = UminersScraper(settings.uminers_scraper.url_to_scrape)
     uminers_scraper.run()
 
     await status_message.edit("Загрузка данных в Google Sheets...")

@@ -14,9 +14,9 @@ GOOGLE_SHEETS_EMAILS = [
     e.strip() for e in os.getenv("GOOGLE_SHEETS_EMAILS", "").split(",") if e.strip()
 ]
 
-UMINER_SEARCH_URLS = [
-    u.strip() for u in os.getenv("UMINER_SEARCH_URLS", "").split(",") if u.strip()
-]
+# UMINER_SEARCH_URLS = [
+#     u.strip() for u in os.getenv("UMINER_SEARCH_URLS", "").split(",") if u.strip()
+# ]
 
 # NOTE: For shared folder use folder ID, for root folder use None
 GOOGLE_DRIVE_FOLDER = os.getenv("GOOGLE_DRIVE_FOLDER", None)
@@ -70,6 +70,10 @@ class PDFCollectorConfig(BaseModel):
         "прайс-лист",
     ]
 
+    no_pdf_filename_check_chats: list[str] = [
+        "РусТехМаш by Uminers",
+    ]
+
 
 class UminersScraperConfig(BaseModel):
     # Number of parallel workers for Chrome Selenuim driven scraping
@@ -77,10 +81,9 @@ class UminersScraperConfig(BaseModel):
     # but the load on the server will much be lower
     max_workers: int = 2
     # Result file name
-    output_file: str = "Uminers.xlsx"
-
-    # Search URLs
-    urls_to_scrape: list[str] = UMINER_SEARCH_URLS
+    output_file: str = "Web_Uminers.xlsx"
+    # URL to scrape
+    url_to_scrape: str = "https://uminers.com/catalog/"
 
 
 class GoogleSheetsConfig(BaseModel):
